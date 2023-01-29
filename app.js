@@ -41,7 +41,7 @@ app.post("/register/", async (request, response) => {
       response.send("Password is too short");
     } else {
       const hashedPassword = await bcrypt.hash(password, 10);
-      const insertQuery = `INSERT INTO user(name,username,password,gender) VALUES('${name}','${username}','${password}','${gender}')`;
+      const insertQuery = `INSERT INTO user(name,username,password,gender) VALUES('${name}','${username}','${hashedPassword}','${gender}')`;
       await database.run(insertQuery);
       response.status(200);
       response.send("User created successfully");
@@ -287,32 +287,35 @@ app.get(
 
 app.get("/user/tweets/", authenticateToken, async (request, response) => {
   const { username } = request;
-  const getUserQuery = `SELECT user_id FROM user WHERE username = '${username}'`;
+  const getUserQuery = `SELECT * FROM user WHERE username = '${username}'`;
   const getUser = await database.get(getUserQuery);
+  console.log(getUser);
 
-  const getTweetIdQuery = `SELECT tweet_id FROM tweet WHERE user_id = ${getUser.user_id}`;
-  const getTweetId = await database.all(getTweetIdQuery);
+  const finalQuery = `SELECT 
+    tweet.tweet, 
+    COUNT(DISTINCT like.like_id) AS likes, 
+    COUNT(DISTINCT reply.reply_id) AS replies, 
+    tweet.date_time,
+    user.name
+FROM 
+    tweet 
+    JOIN user  ON tweet.user_id = user.user_id
+    LEFT JOIN like ON tweet.tweet_id = like.tweet_id
+    LEFT JOIN reply ON tweet.tweet_id = reply.tweet_id
+WHERE
+    user.username = '${getUser.username}'
+GROUP BY 
+    tweet.tweet_id
 
-  const getTweetArray = getTweetId.map((eachTweetId) => {
-    return parseInt(eachTweetId.tweet_id);
-  });
-
-  const tweetQuery = `SELECT tweet FROM tweet WHERE tweet_id IN (${getTweetArray})`;
-  const tweet = await database.all(tweetQuery);
-  const tweetArray = tweet.map((eachTweet) => {
-    return eachTweet.tweet;
-  });
-
-  const likesQuery = `SELECT count(user_id)AS likes FROM like WHERE tweet_id  IN (${getTweetArray})`;
-  const likes = await database.get(likesQuery);
-
-  const repliesQuery = `SELECT count(user_id) AS replies FROM reply WHERE tweet_id IN (${getTweetArray})`;
-  const replies = await database.get(repliesQuery);
-
-  const dateTimeQuery = `SELECT date_time FROM tweet WHERE tweet_id IN (${getTweetArray})`;
-  const dateTime = await database.all(dateTimeQuery);
-
-  response.send(forGeneratingOutput([tweet], likes, replies, [dateTime]));
+`;
+  const finalResult = await database.all(finalQuery);
+  const formateData = finalResult.map((eachData) => ({
+    tweet: eachData.tweet,
+    likes: eachData.likes,
+    replies: eachData.replies,
+    dateTime: eachData.date_time,
+  }));
+  response.send(formateData);
 });
 
 app.post("/user/tweets/", authenticateToken, async (request, response) => {
